@@ -48,7 +48,7 @@ impl PixelFormat {
 }
 
 /// Represents metadata of an image.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImageInfo {
     /// The width of the image, in pixels.
     pub width: u16,
@@ -56,6 +56,8 @@ pub struct ImageInfo {
     pub height: u16,
     /// The pixel format of the image.
     pub pixel_format: PixelFormat,
+    /// COM block
+    pub comment: Option<String>,
 }
 
 /// JPEG decoder
@@ -76,6 +78,8 @@ pub struct Decoder<R> {
     coefficients: Vec<Vec<i16>>,
     // Bitmask of which coefficients has been completely decoded.
     coefficients_finished: [u64; MAX_COMPONENTS],
+    // COM block
+    comment: Option<Vec<u8>>
 }
 
 impl<R: Read> Decoder<R> {
@@ -93,6 +97,7 @@ impl<R: Read> Decoder<R> {
             is_mjpeg: false,
             coefficients: Vec::new(),
             coefficients_finished: [0; MAX_COMPONENTS],
+            comment: None
         }
     }
 
@@ -110,10 +115,17 @@ impl<R: Read> Decoder<R> {
                     _ => panic!(),
                 };
 
+                let comment = if let Some(ref comment) = &self.comment{
+                    std::str::from_utf8(&comment).map_or(None, |x| Some(x.into()))
+                }else {
+                    None
+                };
+
                 Some(ImageInfo {
                     width: frame.output_size.width,
                     height: frame.output_size.height,
                     pixel_format: pixel_format,
+                    comment: comment
                 })
             },
             None => None,
@@ -317,7 +329,8 @@ impl<R: Read> Decoder<R> {
                 Marker::DRI => self.restart_interval = parse_dri(&mut self.reader)?,
                 // Comment
                 Marker::COM => {
-                    let _comment = parse_com(&mut self.reader)?;
+                    let comment = parse_com(&mut self.reader)?;
+                    self.comment = Some(comment)
                 },
                 // Application data
                 Marker::APP(..) => {
